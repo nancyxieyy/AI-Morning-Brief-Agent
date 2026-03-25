@@ -1,0 +1,8 @@
+# 运行产物（不上传）
+Daily/
+logs/
+__pycache__/
+*.pyc
+
+# 系统文件
+.DS_Store
