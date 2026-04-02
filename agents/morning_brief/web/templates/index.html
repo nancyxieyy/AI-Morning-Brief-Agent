@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if current_file %}{{ current_file.replace('.md', '').replace('_', ' ') }}{% else %}Daily Brief{% endif %}
+    </title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <!-- 移动端吸顶唤出菜单 -->
+    <div class="mobile-header">
+        <button class="menu-toggle" onclick="toggleSidebar()">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12h18M3 6h18M3 18h18" />
+            </svg>
+        </button>
+        <span class="mobile-title">Daily Brief</span>
+    </div>
+
+    <div class="app-layout">
+        <!-- 侧边栏：档案大盘抽屉 -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>Daily Brief</h2>
+                <p>Archives 卷宗室</p>
+                <button class="close-sidebar mobile-only" onclick="toggleSidebar()">×</button>
+            </div>
+
+            <div class="brief-list">
+                {% if briefs %}
+                {% for brief in briefs %}
+                <a href="/brief/{{ brief.path }}"
+                    class="brief-nav-item {% if brief.date == current_date and brief.filename == current_file %}active{% endif %}">
+                    <span class="nav-date">{{ brief.date }}</span>
+                    <span class="nav-title">{{ brief.filename.replace('.md', '').replace('_', ' ') }}</span>
+                    <p class="nav-preview">{{ brief.preview }}</p>
+                </a>
+                {% endfor %}
+                {% else %}
+                <p class="empty">暂无每日卷宗记录</p>
+                {% endif %}
+            </div>
+        </aside>
+
+        <!-- 主阅读区：内容大盘投射 -->
+        <main class="main-content">
+            {% if raw_html %}
+            <!-- 网页版独占动作操控台 -->
+            <div class="action-bar">
+                <div class="action-title">{{ current_file.replace('.md', '').replace('_', ' ') }}</div>
+                <div class="action-buttons">
+                    <button class="btn" onclick="copyArchiveLink()">🔗 复制快照库</button>
+                    <button class="btn primary" onclick="shareBrief()">📤 公开分享</button>
+                </div>
+            </div>
+
+            <div class="reader-container">
+                {{ raw_html | safe }}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <h3>暂无投递归档</h3>
+                <p>引擎正在静默运行，今晚或明早查收首次快报...</p>
+            </div>
+            {% endif %}
+        </main>
+    </div>
+
+    <!-- PWA与响应式交互增强脚本 -->
+    <script>
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+        function copyArchiveLink() {
+            navigator.clipboard.writeText(window.location.href);
+            alert("✨ 该卷宗的独家永久私密链接已提取并复制！");
+        }
+        function shareBrief() {
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Nancy\'s Daily Brief',
+                    url: window.location.href
+                });
+            } else {
+                copyArchiveLink();
+            }
+        }
+    </script>
+</body>
+
+</html>

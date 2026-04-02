@@ -30,7 +30,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <table width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td style="padding-bottom: 10px;">
-                    <h1 style="margin: 0; font-size: 24px; color: #2A2827; font-weight: 600;">&#9728;&#65039; 早安！今日 AI 工作流简报</h1>
+                    <h1 style="margin: 0; font-size: 24px; color: #2A2827; font-weight: 600;">{greeting_text}，{subscriber_name}</h1>
                   </td>
                 </tr>
                 <tr>
@@ -98,7 +98,7 @@ ARTICLE_TEMPLATE = """<table width="100%" cellpadding="0" cellspacing="0" border
 </table>"""
 
 
-def _render_from_dict(data: dict, date_str: str) -> str:
+def _render_from_dict(data: dict, date_str: str, subscriber_name: str, greeting_text: str) -> str:
     """从已解析的 JSON dict 渲染完整 HTML 邮件。"""
     summary = data.get("summary", "这是你的专属 AI 简报。").replace("\n", "<br/>")
     articles = data.get("articles", [])
@@ -111,7 +111,7 @@ def _render_from_dict(data: dict, date_str: str) -> str:
 
         source = art.get("source", "")
         published = art.get("published", "")
-        source_time = f"{source} &middot; {published}" if source and published else source or published
+        source_time = f"{source} · {published}" if source and published else source or published
 
         articles_html += ARTICLE_TEMPLATE.format(
             tag_bg=style["bg"],
@@ -127,10 +127,12 @@ def _render_from_dict(data: dict, date_str: str) -> str:
         summary_text=summary,
         articles_html=articles_html,
         date_str=date_str,
+        subscriber_name=subscriber_name,
+        greeting_text=greeting_text,
     )
 
 
-def _render_from_markdown(md_content: str, date_str: str) -> str:
+def _render_from_markdown(md_content: str, date_str: str, subscriber_name: str, greeting_text: str) -> str:
     """Fallback：用正则从 Markdown 解析，兜底用。"""
     summary_match = re.search(r'## 📌 今日摘要\n(.*?)\n##', md_content, re.DOTALL)
     summary = summary_match.group(1).strip() if summary_match else "这是今日的专属工作流简报。"
@@ -147,7 +149,7 @@ def _render_from_markdown(md_content: str, date_str: str) -> str:
             title, source_time, desc, link = lines[0].strip(), "", "", "#"
             for line in lines[1:]:
                 if line.startswith('- **来源**'):
-                    source_time = line.replace('- **来源**：', '').replace('**时间**：', '&middot; ').strip()
+                    source_time = line.replace('- **来源**：', '').replace('**时间**：', '· ').strip()
                 elif line.startswith('- **一句话**'):
                     desc = line.replace('- **一句话**：', '').strip()
                 elif '🔗' in line:
@@ -161,13 +163,18 @@ def _render_from_markdown(md_content: str, date_str: str) -> str:
             )
 
     return HTML_TEMPLATE.format(
-        summary_text=summary, articles_html=articles_html, date_str=date_str
+        summary_text=summary, articles_html=articles_html, date_str=date_str,
+        subscriber_name=subscriber_name, greeting_text=greeting_text,
     )
 
 
-def dict_to_markdown(data: dict, date_str: str) -> str:
+def dict_to_markdown(data: dict, date_str: str, mode: str = "morning") -> str:
     """把解析后的 dict 渲染成可读的 Markdown，用于保存 .md 文件。"""
-    lines = [f"# 🤖 早安！今日 AI 简报 · {date_str}", "", "## 📌 今日摘要", data.get("summary", ""), ""]
+    if mode == "evening":
+        title = f"# 🤖 晚上好，Nancy！今晚 AI 简报 · {date_str}"
+    else:
+        title = f"# 🤖 早安，Nancy！今日 AI 简报 · {date_str}"
+    lines = [title, "", "## 📌 今日摘要", data.get("summary", ""), ""]
     articles = data.get("articles", [])
     if articles:
         lines.append("## 🔥 重点文章")
@@ -183,21 +190,88 @@ def dict_to_markdown(data: dict, date_str: str) -> str:
     return "\n".join(lines)
 
 
-def parse_markdown_to_html(content: str, date_str: str) -> tuple[str, str]:
+def _repair_json(raw: str) -> str:
+    """
+    修复 LLM 常见的 JSON 错误：字符串值中出现未转义的双引号。
+    策略：逐字符扫描，遇到字符串内的 " 时，向后看第一个非空白字符：
+      - 若为 JSON 结构符 (: , } ])  → 合法的字符串结束符，保留
+      - 否则                        → 内容引号，替换为 \"
+    """
+    result = []
+    i = 0
+    n = len(raw)
+    in_string = False
+
+    while i < n:
+        ch = raw[i]
+        if in_string:
+            if ch == '\\':
+                result.append(ch)
+                i += 1
+                if i < n:
+                    result.append(raw[i])
+                    i += 1
+                continue
+            elif ch == '"':
+                # 前瞻：跳过空白后的第一个字符
+                j = i + 1
+                while j < n and raw[j] in ' \t\n\r':
+                    j += 1
+                next_ch = raw[j] if j < n else ''
+                if next_ch in ':,}]':
+                    # 合法结束符
+                    result.append('"')
+                    in_string = False
+                else:
+                    # 内容中的引号，转义
+                    result.append('\\"')
+            else:
+                result.append(ch)
+        else:
+            if ch == '"':
+                result.append('"')
+                in_string = True
+            else:
+                result.append(ch)
+        i += 1
+
+    return ''.join(result)
+
+
+def _try_parse_json(content: str):
+    """先直接解析，失败则尝试修复后再解析。返回 (data, parse_path)"""
+    start = content.find('{')
+    if start == -1:
+        raise ValueError("No JSON object found")
+    raw = content[start:]
+    try:
+        return json.loads(raw), "json_direct"
+    except json.JSONDecodeError:
+        pass
+    # 用逐字符修复再试
+    try:
+        fixed = _repair_json(raw)
+        return json.loads(fixed), "json_repaired"
+    except json.JSONDecodeError:
+        raise
+
+
+def parse_markdown_to_html(content: str, date_str: str, subscriber_name: str = "Nancy",
+                           mode: str = "morning", greeting_text: str = None) -> tuple[str, str, str]:
     """
     主入口。content 优先当 JSON 处理，失败则 fallback 到 Markdown 正则。
-    返回 (html_str, markdown_str) 供调用方分别用于发邮件和保存文件。
+    返回 (html_str, markdown_str, parse_path)
+    parse_path: "json_direct" | "json_repaired" | "fallback"
+    greeting_text: 若传入则覆盖 mode 派生的默认问候语
     """
+    if greeting_text is None:
+        greeting_text = "🌙 晚上好" if mode == "evening" else "☀️ 早上好"
     try:
-        # 找到第一个 { 交给 json.loads 自己定边界，天然处理嵌套且不被尾部杂文干扰
-        start = content.find('{')
-        if start == -1:
-            raise ValueError("No JSON object found")
-        data = json.loads(content[start:])
-        html = _render_from_dict(data, date_str)
-        md = dict_to_markdown(data, date_str)
-        return html, md
+        data, parse_path = _try_parse_json(content)
+        html = _render_from_dict(data, date_str, subscriber_name, greeting_text)
+        md = dict_to_markdown(data, date_str, mode)
+        return html, md, parse_path
     except (json.JSONDecodeError, ValueError):
         # Ollama 或格式不规范时的兜底
-        html = _render_from_markdown(content, date_str)
-        return html, content
+        html = _render_from_markdown(content, date_str, subscriber_name, greeting_text)
+        return html, content, "fallback"
