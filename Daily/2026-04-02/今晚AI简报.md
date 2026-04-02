@@ -1,23 +1,23 @@
 # 🤖 晚上好，Nancy！今晚 AI 简报 · 2026-04-02
 
 ## 📌 今日摘要
-今日 AI 领域亮点集中在 Simon Willison 发布的三月赞助者通讯，深入探讨 Agentic 工程模式与 MoE 模型前沿应用；科技方面，Uber 将电动车转换补贴扩展至全美司机，预测市场平台 Polymarket 因内幕交易争议再度引发监管讨论。整体新闻量偏少，AI 专项内容以社区与工程实践为主。
+今日 AI 相关内容较少，Simon Willison 的月度通讯聚焦于 Agentic 工程模式与 MoE 模型前沿动态，值得订阅者关注。科技领域，Uber 将 4000 美元电动车补贴扩展至全美司机，Polymarket 等预测市场的内幕交易与信息操控问题引发关注。
 
 ## 🔥 重点文章
-### Simon Willison 三月赞助者通讯：Agentic 工程模式与 MoE 模型
+### Simon Willison 2026年3月赞助者通讯：Agentic 工程模式与 MoE 模型
 - **来源**：Simon Willison  **时间**：2026-04-02 05:15
 - **分类**：社区热议
-- **一句话**：深入分析 Agentic 工程新范式及混合专家模型最新进展，值得 AI 从业者细读。
+- **一句话**：涵盖 Agentic 工程新范式与混合专家模型最新动态，AI 实践者必读。
 - 🔗 https://simonwillison.net/2026/Apr/2/march-newsletter/#atom-everything
 
-### Uber 将 $4,000「Go Electric」电动车补贴扩展至全美司机
+### Uber 将 4000 美元「Go Electric」补贴扩展至全美司机
 - **来源**：The Verge  **时间**：2026-04-02 11:00
 - **分类**：政策动态
-- **一句话**：Uber 司机转换电动车可获四千美元补贴，覆盖范围从四州扩至全国。
+- **一句话**：Uber 将电动车转型补贴计划从4州扩展至全美，加速司机电动化。
 - 🔗 https://www.theverge.com/transportation/905427/uber-go-electric-grant-driver-switch-ev
 
-### 内幕交易还是普通用户？Polymarket 对此漠然
+### 内幕交易还是普通用户？Polymarket 对此并不在意
 - **来源**：The Verge  **时间**：2026-04-02 11:00
 - **分类**：社区热议
-- **一句话**：预测市场平台 Polymarket 在内幕交易质疑声中持续扩张，监管边界引发争议。
+- **一句话**：预测市场 Polymarket 因信息操控与内幕交易争议引发市场公平性质疑。
 - 🔗 https://www.theverge.com/business/905466/polymarket-kalshi-sponsored-content-insider-trading-x-influencers
