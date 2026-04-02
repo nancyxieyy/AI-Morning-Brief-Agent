@@ -10,6 +10,7 @@ import argparse
 import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,7 @@ LOG_DIR        = BASE_DIR / "logs"
 
 HOURS_LOOKBACK_MORNING = 24                  # 早报：回看24小时
 HOURS_LOOKBACK_EVENING = 12                  # 晚报：回看12小时（覆盖下午到晚上）
+GITHUB_REPO_DIR = BASE_DIR / "AI-Morning-Brief-Agent"  # Railway 部署用 repo
 OLLAMA_MODEL   = "qwen3.5:9b"               # 备用本地模型
 OLLAMA_API     = "http://localhost:11434/api/generate"
 
@@ -506,6 +508,52 @@ def main() -> None:
 
     success_count = sum(1 for r in email_results if r["success"])
     print(f"\n✨ 完成分发 ({success_count}/{len(SUBSCRIBERS)} 发送成功)！\n")
+
+    sync_to_github(date_str, brief_filename, args.mode)
+
+
+def sync_to_github(date_str: str, filename: str, mode: str) -> None:
+    """把当日简报同步到 GitHub repo，触发 Railway 自动更新网页版"""
+    if not GITHUB_REPO_DIR.exists():
+        print("  ⚠️  AI-Morning-Brief-Agent 目录不存在，跳过 GitHub 同步")
+        return
+
+    # 复制简报文件到 GitHub repo 的 Daily/ 目录
+    src = DAILY_DIR / date_str / filename
+    dst_dir = GITHUB_REPO_DIR / "Daily" / date_str
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst_dir / filename)
+
+    brief_label = "晚报" if mode == "evening" else "早报"
+    commit_msg = f"brief: {date_str} {brief_label}"
+
+    print(f"  🚀 同步到 GitHub ({brief_label})...")
+    try:
+        subprocess.run(
+            ["git", "add", f"Daily/{date_str}/"],
+            cwd=GITHUB_REPO_DIR, check=True, capture_output=True
+        )
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=GITHUB_REPO_DIR, capture_output=True
+        )
+        if result.returncode == 0:
+            print("  ℹ️  无新内容，跳过 commit")
+            return
+        subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            cwd=GITHUB_REPO_DIR, check=True, capture_output=True
+        )
+        push = subprocess.run(
+            ["git", "push", "origin", "main"],
+            cwd=GITHUB_REPO_DIR, capture_output=True, text=True, timeout=30
+        )
+        if push.returncode == 0:
+            print("  ✅ GitHub 同步成功，Railway 将自动刷新")
+        else:
+            print(f"  ⚠️  push 失败（不影响邮件）: {push.stderr[:120]}")
+    except Exception as e:
+        print(f"  ⚠️  GitHub 同步失败（不影响邮件）: {e}")
 
 
 if __name__ == "__main__":
