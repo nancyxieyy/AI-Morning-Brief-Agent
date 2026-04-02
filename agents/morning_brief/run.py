@@ -431,14 +431,14 @@ def main() -> None:
     args = parser.parse_args()
     is_evening = args.mode == "evening"
 
+    date_str = datetime.now().strftime("%Y-%m-%d")
+
     hours_lookback = HOURS_LOOKBACK_EVENING if is_evening else HOURS_LOOKBACK_MORNING
     greeting_emoji = "🌙" if is_evening else "🌅"
     greeting_word  = "晚上好" if is_evening else "早安"
-    brief_title    = "Evening Brief" if is_evening else "Daily Brief"
-    brief_filename = f"Evening_Brief_{date_str}.md" if is_evening else f"Daily_Brief_{date_str}.md"
+    brief_title    = "今晚 AI 简报" if is_evening else "今日 AI 简报"
+    brief_filename = "今晚AI简报.md" if is_evening else "今日AI新闻.md"
     audit_suffix   = "_evening" if is_evening else ""
-
-    date_str = datetime.now().strftime("%Y-%m-%d")
     LOG_DIR.mkdir(exist_ok=True)
 
     print(f"\n{'='*50}")

@@ -1,91 +1,70 @@
-# AI Morning Brief Workflow Agent 🤖🗞️
+# Daily Brief Agent & LLMOps Engine 🤖🗞️
 
-一个自动化的轻量级 Python 脚本库，每天定时拉取关注的科技/AI RSS 订阅源，通过 **大语言模型 (Claude CLI / Ollama)** 对海量信息进行降噪抓取并分类，最终为你生成一封**具有极高颜值与结构化布局 (基于嵌套 Table)** 的跨平台自适应 HTML 早报邮件。不仅如此，它还会将每一天的新闻归档在本地作为 Markdown 文件记录。
-
----
-
-## 🌟 核心特性 (Features)
-
-1. **去噪与精练筛选**：支持将几十个 RSS 聚合源交由模型理解和提炼，通过特制的 `JSON` 数据结构引导模型，剔除与关键主题无关的噪声新闻。
-2. **极美跨平台邮件布局**：放弃了对邮件软件不够友好的 CSS Flex / Grid 标准，使用纯 `<Table>` 嵌套设计以及 Inline Style 控制背景与间隔。内置一套 Claude 系“大理石调”配色、进度条 UI 和彩色文章分类标签。它适配了各种老旧的 Outlook 等企业邮箱客户端。
-3. **安全稳定的推送网关**：内置依赖命令行的 `curl + SMTP` 推送层，有效避开 `macOS launchd` 环境下常出现的本地 Python SSL 环境丢失报错问题。
-4. **灵活双驱动架构**：默认调用命令行下强大且智能的 `Claude Code (-p)` 作为主脑。如果网络离线或调用失败，自动回退（Fallback）至本地跑的 `Ollama (qwen3.5:9b)` 服务来进行总结。
+从最初的一个“简单的自动化 Python 脚本”，本作已经横跨进化为一个具备 **LLMOps 评测体系**、**Token 透明追踪引擎** 以及 **FastAPI 微服务展现大盘** 的高级人工智能工作流架构。
+系统依靠极低的人工干预，每天能定时拉取关注的科技/AI RSS 订阅源，不仅通过 **大语言模型 (Claude CLI / Ollama)** 对海量的噪声信息进行降维打击和结构化提取，最后还会为你生成包含高颜值排版设计的跨平台专属早晚报。
 
 ---
 
-## 🛠️ 安装清单 (Installation)
+## 🌟 核心新特性 (State-of-the-Art)
 
-本项目核心只依赖 `feedparser` 以解析 RSS 文件，其余均使用标准库构建，非常纯粹。
+1. **LLMOps 全链路评测沙盒 (Evals Runner)**：系统内部集成了 `Golden Set`、`Regression Set` 与 `Badcases` 弹药库。针对每一次指令、微调或是模型的颠覆，沙箱不仅能在第一层配置了极速规则墙拦截，还挂载了 **LLM-as-a-Judge** 异构模型进行裁决，以确保生成物的美感与内容质量能被量化跟踪，再不退化！
+2. **Telemetry 透明资产监控黑匣子**：所有的大模型生成耗时、Input/Output Tokens 实物吞吐量、甚至预估的虚拟算力美金花费 (USD)，均通过无侵入式的监听器精确记录落盘进 `logs/telemetry_usage.jsonl`，且你能随时调用 Pandas 高维分析工具包将其一键渲染出资金与时效的高清大盘走势图。
+3. **极美跨平台原生邮件大盘与 Web 深层档案馆**：
+   - **邮件端**：原生纯粹的 `<Table>` 嵌套模型加上 Inline 极硬约束，完美穿透了各式各样繁杂的老旧 Outlook 等邮箱客户端，呈现出具有高度呼吸感的阅读体验。
+   - **Web 服务器**：独立抽出的一套 `FastAPI` 响应式双核本地微服务引擎。电脑端自动开启超 800px 视野的宏大双栏阅读器；手机端侧边栏抽屉更是打通了沉浸阅读体验！
+4. **精练筛选与双核退避架构**：主节点无缝对接最前沿的 `Claude Code (Sonnet)` CLI，只要网络不慎崩塌，便会光速级切回本地局域网私有化模型 `Ollama (qwen3.5:9b)` 中，全自动自愈接管。
+
+---
+
+## 🛠️ 全局环境配置包 (Installation)
+
+除了底层抓取必备的 `feedparser` 外，为了支撑上方的图表统计与微型展现服，你需要：
 
 ```bash
-# 1. 克隆 / 下载本文件夹
-# 2. 安装 Python 依赖 
+# 1. 拷贝克隆本套件
+# 2. 部署核心所需依赖
 pip install -r requirements.txt
+pip install fastapi "uvicorn[standard]" jinja2 pandas matplotlib
 ```
-
-推荐配合前置支持：
-- **Claude Code CLI工具**（或自己写调用其他模型 API 的逻辑）。
-- 如果要使用离线备援机制，请确保已下载并运行 Ollama 并在后台拉取了对应的模型（默认为 `ollama run qwen3.5:9b`）。
 
 ---
 
-## 🔧 配置指南 (Configuration)
+## � 触发与驱动 (Usage)
 
-在实际投入你的自动工作流（Cron/Launchd）之前，你需要进入 `run.py` 内部修改以下配置区的信息。**我在代码中用 `xxxxx` 作为站位符标记了需要填入的敏感隐私：**
-
-1. 修改 **`run.py` 第23行起的邮件配置**：
-```python
-# 邮件配置
-GMAIL_USER     = "xxxxx@gmail.com"           # 你的 Gmail 发件人地址
-GMAIL_APP_PWD  = "xxxxxxxxxxxxxxxx"          # 这里不是登录密码！需要去 Google 账号生成独立的 APP Password (16位)
-EMAIL_TO       = "xxxxx@example.com"         # 接收简报的目标地址
-```
-
-2. 修改 **模型调用路径配置** (视乎你这台机子里 CLI 所在位置)：
-```python
-CLAUDE_BIN = "claude" # 如果无法被环境遍历检测到，请换为绝对地址如: "/Users/xxx/.local/bin/claude"
-```
-
-3. **定制订阅源 (原生支持 OPML 导入)**：
-考虑到硬编码在 Python 代码中过于鸡肋，我在仓库内附带了 `data/hn-popular-blogs-2025.opml` 作为默认的精选启动包。主脚本的 `get_feeds()` 方法能够自动解析 OPML 并将所有的订阅树抓取进内存。
-你可以自由替换这套 OPML（比如从 Inoreader/Feedly 导出自己的关注源覆盖它）。如果 OPML 缺失，则会退化为使用写死在 `run.py` 里的备份名单。
-
----
-
-## 🚀 启动与使用 (Usage)
-
-执行一遍即可直接发信：
+### 1. 强制干预投递
 ```bash
-python run.py
+# 人工生成发送早安版简报
+python3 agents/morning_brief/run.py --mode morning
+
+# 人工生成发送暗黑晚间版简报
+python3 agents/morning_brief/run.py --mode evening
 ```
+*所有简报运行完毕都将自动以 `Daily_Brief_2026-X.md` 极其强迫症友好的日期目录落回本地磁盘仓库内。*
 
-### 自动化运行 (Automating)
-建议在 Mac 下结合 `launchd` 或者 Linux 下配置 `crontab` 实现每天清晨定时触发：
-
-**Crontab 例子 (每天早晨 8:00 执行)：**
+### 2. 启动本地时光机仪表盘 (Web Dashboard)
+如果你想把往昔积攒的历史战报以最高级别的交互方式去查阅，启动以下微型基站：
 ```bash
-0 8 * * * cd /path/to/AI_Morning_Brief_Agent && python run.py >> /tmp/morning_brief.log 2>&1
+python3 -m uvicorn agents.morning_brief.web.main:app --host 127.0.0.1 --port 8000
 ```
-
-*生成的 Markdown 存档新闻会保存在运行目录同级的 `Daily/` 文件夹下。*
-
----
-
-## 🧭 未来演进方向 (Roadmap & Improvements)
-
-这套 Agent 虽然已经具备了极高的工作流价值，但如果你想继续深耕，可以考虑往这些硬核开发方向迭代：
-
-- [ ] **高并发多线程改造 (Async / ThreadPool)**
-  目前 `run.py` 遍历十几个乃至上百个 RSS 源时是串行的，全卡在网络等待上。引入 `asyncio + aiohttp` 或者 `ThreadPoolExecutor` 并行抓取，能把耗时从几分钟压缩到几秒钟。
-- [ ] **引入长文全文抓取扩充 (Deep Scraping)**
-  很多知名博客（比如 HackerNews 高赞文章）在 RSS 中只留了一行 `summary`，导致模型总结信息量不足。后续可以引入诸如 `Jina Reader API` 或配合 `BeautifulSoup` 的爬虫脚本补全全文内容，再交给模型总结。
-- [ ] **已读去重墙防抖 (Deduplication)**
-  当前是基于时间戳暴力拉取最近 48 小时的文章。未来可以加入一个只有几十行的自带 `SQLite` 甚至就是一个简单的 `seen_urls.json` 用于记录推送过的文章 URL，避免大模型“车轱辘话反复说”。
-- [ ] **拥抱工程化环境变量隔离 (`.env`)**
-  目前通过在源码里留 `xxxxx` 占位符的做法并不“极客”。下一步应该引入 `python-dotenv`，让大家把隐私密钥存在不上传 Git 的隐藏本地文件中，使代码完全解耦。
-- [ ] **超长上下文分片策略 (Chunking & Map-Reduce)**
-  如果 OPML 内容过度爆炸，几十万字的 JSON 直接塞给模型可能导致注意力丢失（Lost in the middle）或是直接 Token 溢出。这会涉及基于向量和提示词流切割的进阶改写。
+然后直接在任何宿主机访问 `http://127.0.0.1:8000` 进入绝美档案馆！
 
 ---
 
-> _Automated by Claude Code / Designed by Antigravity_
+## 🔧 给 Geek 玩家的疑难排解方案 (Troubleshooting)
+
+如果此时的你身处中国大陆并处于长期 TUN (增强模式接管全域网络) 的状态下，务必避开这几个网络毒区：
+
+1. **SMTP 发送 465 SSL 阻断错误 (Curl Error 35)**：
+   别冤枉你的 Python 环境！由于 99% 的梯子虚拟服务商（AWS、搬瓦工机房等）底层为了防垃圾营销，他们是在硬件层**物理写死了封杀往返的 `25/465` 邮箱协议端口的**。遇到这种问题，极其建议：改用 国内邮箱账号 (如 QQ 邮箱或者网易)。之后再往你的 Clash 里丢入强制规则 `DOMAIN,smtp.qq.com,DIRECT` 做绝对隔离直连，一秒实现神级避坑！
+2. **Git 大规模同步到 GitHub 无故超时 (Push Failed)**：
+   切记不要再用 HTTPS 通道输入所谓的 Access Token 密码了，尽早换上 SSH。但在代理劫持的环境里，SSH 自带的端口 22 也会遭到污染！解法也很简单，进入你的 `~/.ssh/config`，手动通过内修方案迫使 Github 走 `443` 通道：
+   ```text
+   Host github.com
+       Hostname ssh.github.com
+       Port 443
+       User git
+   ```
+
+---
+
+> _Automated workflows powered by cutting-edge LLMs / Engineered & Designed by Antigravity_
