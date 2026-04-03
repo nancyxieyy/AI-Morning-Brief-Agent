@@ -4,36 +4,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% if current_file %}{{ current_file.replace('.md', '').replace('_', ' ') }}{% else %}Daily Brief{% endif %}
+    <title>{% if current_sec %}{{ current_sec.name }}{% endif %} - {% if current_file %}{{ current_file.replace('.md',
+        '').replace('_', ' ') }}{% else %}Daily Brief{% endif %}
     </title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=2.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
 <body>
-    <!-- 移动端吸顶唤出菜单 -->
     <div class="mobile-header">
         <button class="menu-toggle" onclick="toggleSidebar()">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 12h18M3 6h18M3 18h18" />
-            </svg>
+            <i class="fas fa-bars"></i>
         </button>
         <span class="mobile-title">Daily Brief</span>
     </div>
+
+    <!-- 门户顶栏：全局板块切换 -->
+    <nav class="portal-nav">
+        <div class="nav-container">
+            <div class="nav-logo">Daily Brief</div>
+            <div class="nav-links">
+                {% for sec in sections %}
+                <a href="/{{ sec.id }}" class="nav-item {% if current_sec.id == sec.id %}active{% endif %}">
+                    {{ sec.name }}
+                </a>
+                {% endfor %}
+            </div>
+            <div class="nav-actions">
+                <a href="/admin?token=nancy123" class="nav-icon" title="控制台"><i class="fas fa-cog"></i></a>
+            </div>
+        </div>
+    </nav>
 
     <div class="app-layout">
         <!-- 侧边栏：档案大盘抽屉 -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <h2>Daily Brief</h2>
-                <p>Archives 卷宗室</p>
-                <button class="close-sidebar mobile-only" onclick="toggleSidebar()">×</button>
+                <h2>档案馆 Archives</h2>
+                <p>{{ current_sec.name }} 库</p>
+                <div class="sidebar-controls">
+                    <button class="toggle-btn" onclick="toggleSidebar()" title="隐藏/显示侧边栏">
+                        <i class="fas fa-angles-left" id="toggle-icon"></i>
+                    </button>
+                </div>
             </div>
 
             <div class="brief-list">
                 {% if briefs %}
                 {% for brief in briefs %}
-                <a href="/brief/{{ brief.path }}"
+                <a href="/{{ current_sec.id }}/brief/{{ brief.path }}"
                     class="brief-nav-item {% if brief.date == current_date and brief.filename == current_file %}active{% endif %}">
                     <span class="nav-date">{{ brief.date }}</span>
                     <span class="nav-title">{{ brief.filename.replace('.md', '').replace('_', ' ') }}</span>
@@ -43,7 +62,18 @@
                 {% else %}
                 <p class="empty">暂无每日卷宗记录</p>
                 {% endif %}
-            </div>
+                <div class="sidebar-footer" style="padding: 1.5rem; border-top: 1px solid var(--border-color);">
+                    <a href="/admin?token=nancy123" class="btn"
+                        style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path
+                                d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                            <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        控制台 Admin
+                    </a>
+                </div>
         </aside>
 
         <!-- 主阅读区：内容大盘投射 -->
@@ -72,17 +102,31 @@
 
     <!-- PWA与响应式交互增强脚本 -->
     <script>
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('open');
+        // 侧边栏记忆逻辑
+        const sidebar = document.getElementById('sidebar');
+        const toggleIcon = document.getElementById('toggle-icon');
+
+        // 初始化加载状态
+        if (localStorage.getItem('sidebarHidden') === 'true') {
+            sidebar.classList.add('collapsed');
+            toggleIcon.className = 'fas fa-angles-right';
         }
+
+        function toggleSidebar() {
+            const isCollapsed = sidebar.classList.toggle('collapsed');
+            localStorage.setItem('sidebarHidden', isCollapsed);
+            toggleIcon.className = isCollapsed ? 'fas fa-angles-right' : 'fas fa-angles-left';
+        }
+
         function copyArchiveLink() {
             navigator.clipboard.writeText(window.location.href);
             alert("✨ 该卷宗的独家永久私密链接已提取并复制！");
         }
+
         function shareBrief() {
             if (navigator.share) {
                 navigator.share({
-                    title: 'Nancy\'s Daily Brief',
+                    title: 'Daily Brief',
                     url: window.location.href
                 });
             } else {

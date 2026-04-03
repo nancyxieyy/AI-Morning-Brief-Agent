@@ -1,5 +1,7 @@
 import json
 import re
+import os
+from datetime import datetime
 
 # 分类标签样式映射（Claude 输出 category 字段时使用）
 CATEGORY_STYLES = {
@@ -63,6 +65,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </td>
           </tr>
 
+          {feedback_section}
+
           <!-- 页脚 -->
           <tr>
             <td style="padding: 24px 40px; background-color: #F7F5F2; text-align: center;">
@@ -123,12 +127,38 @@ def _render_from_dict(data: dict, date_str: str, subscriber_name: str, greeting_
             desc=art.get("one_liner", ""),
         )
 
+    # 针对生产环境分发的动态注入
+    base_url = os.environ.get("WEB_BASE_URL", "").rstrip("/")
+    
+    # 如果没有配置公网 URL，则隐藏反馈模块
+    feedback_section_html = ""
+    if base_url:
+        feedback_section_html = f"""
+          <!-- 用户反馈 (RLHF) -->
+          <tr>
+            <td style="padding: 30px 40px; background-color: #FFFFFF; border-top: 1px solid #E6E2DE; text-align: center;">
+              <p style="margin: 0 0 15px 0; font-size: 14px; color: #726B66; font-weight: 500;">这份简报对你有帮助吗？(反馈将直接优化 AI 生成逻辑)</p>
+              <table align="center" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="padding-right: 20px;">
+                    <a href="{base_url}/feedback?id={date_str}_{datetime.now().strftime('%H%M%S')}&type=like" style="display: inline-block; padding: 10px 24px; background-color: #E8F0EA; color: #2D5D3B; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; border: 1px solid #D1E0D5;">👍 很有用</a>
+                  </td>
+                  <td>
+                    <a href="{base_url}/feedback?id={date_str}_{datetime.now().strftime('%H%M%S')}&type=dislike" style="display: inline-block; padding: 10px 24px; background-color: #FFF0E6; color: #A44200; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; border: 1px solid #FADCC8;">👎 质量一般</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        """
+
     return HTML_TEMPLATE.format(
         summary_text=summary,
         articles_html=articles_html,
         date_str=date_str,
         subscriber_name=subscriber_name,
         greeting_text=greeting_text,
+        feedback_section=feedback_section_html
     )
 
 
@@ -162,9 +192,25 @@ def _render_from_markdown(md_content: str, date_str: str, subscriber_name: str, 
                 title=title, link=link, desc=desc,
             )
 
+    # 同样处理 Fallback 模式
+    base_url = os.environ.get("WEB_BASE_URL", "").rstrip("/")
+    feedback_section_html = ""
+    if base_url:
+        feedback_section_html = f"""
+          <tr>
+            <td style="padding: 30px 40px; background-color: #FFFFFF; border-top: 1px solid #E6E2DE; text-align: center;">
+              <p style="margin: 0 0 15px 0; font-size: 14px; color: #726B66;">反馈此简报: 
+                <a href="{base_url}/feedback?id={date_str}_fallback&type=like">👍</a> / 
+                <a href="{base_url}/feedback?id={date_str}_fallback&type=dislike">👎</a>
+              </p>
+            </td>
+          </tr>
+        """
+
     return HTML_TEMPLATE.format(
         summary_text=summary, articles_html=articles_html, date_str=date_str,
         subscriber_name=subscriber_name, greeting_text=greeting_text,
+        feedback_section=feedback_section_html
     )
 
 

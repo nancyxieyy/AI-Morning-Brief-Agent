@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel | Daily Brief</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .admin-container {
+            max-width: 800px;
+            margin: 4rem auto;
+            padding: 0 1.5rem;
+        }
+
+        .section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .subscriber-tag {
+            display: inline-flex;
+            align-items: center;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            border-radius: 30px;
+            margin: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .remove-btn {
+            margin-left: 8px;
+            color: #ef4444;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1.2rem;
+            line-height: 1;
+        }
+
+        .form-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 1.5rem;
+        }
+
+        input {
+            flex: 1;
+            padding: 0.8rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-color);
+            color: var(--text-primary);
+        }
+
+        .btn-add {
+            background: var(--text-primary);
+            color: var(--bg-color);
+            border: none;
+            padding: 0 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .header-flex {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .back-link {
+            text-decoration: none;
+            color: var(--accent-color);
+            font-weight: 600;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="admin-container">
+        <div class="header-flex">
+            <h1>⚙️ 引擎控制台</h1>
+            <a href="/" class="back-link">← 返回档案馆</a>
+        </div>
+
+        <!-- 订阅者管理区 -->
+        <div class="section">
+            <h3>👥 订阅者名单 (Subscribers)</h3>
+            <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.5rem;">
+                修改后将实时生效，下一次定时任务发信将自动遵循此清单。</p>
+
+            <div id="subscriber-list">
+                {% for sub in settings.subscribers %}
+                <div class="subscriber-tag">
+                    <span><strong>{{ sub.name }}</strong> ({{ sub.email }})</span>
+                    <span class="remove-btn" onclick="removeSubscriber('{{ sub.email }}')">×</span>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <input type="text" id="newName" placeholder="姓名 (如 Nancy)">
+                <input type="email" id="newEmail" placeholder="邮箱地址">
+                <button class="btn-add" onclick="addSubscriber()">添加成员</button>
+            </div>
+        </div>
+
+        <!-- 模型配置区 (只读展示，暂不开放修改以防崩溃) -->
+        <div class="section">
+            <h3>🧠 AI 算力中心</h3>
+            <div style="display: flex; gap: 2rem;">
+                <div>
+                    <label style="color: var(--text-secondary); font-size: 0.8rem;">主力模型 (Claude)</label>
+                    <p style="margin: 5px 0; font-family: monospace;">{{ settings.claude_model }}</p>
+                </div>
+                <div>
+                    <label style="color: var(--text-secondary); font-size: 0.8rem;">备用模型 (Ollama)</label>
+                    <p style="margin: 5px 0; font-family: monospace;">{{ settings.ollama_model }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function addSubscriber() {
+            const name = document.getElementById('newName').value;
+            const email = document.getElementById('newEmail').value;
+            if (!name || !email) return alert("请完整填写姓名和邮箱");
+
+            const res = await fetch(`/api/settings/subscribers/add?token={{ token }}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                location.reload();
+            } else {
+                alert(data.message || "添加失败");
+            }
+        }
+
+        async function removeSubscriber(email) {
+            if (!confirm(`确定要移除 ${email} 吗？`)) return;
+
+            const res = await fetch(`/api/settings/subscribers/remove?token={{ token }}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                location.reload();
+            } else {
+                alert("移除失败");
+            }
+        }
+    </script>
+</body>
+
+</html>
