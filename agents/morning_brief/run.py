@@ -31,28 +31,47 @@ except ImportError:
     TokenMonitor = None
 
 # ============================================================
-# 配置区 —— 只需修改这里
+# 配置区 —— 支持从外部 admin_settings.json 动态加载
 # ============================================================
 BASE_DIR       = Path(__file__).parent.parent.parent
 DAILY_DIR      = BASE_DIR / "Daily"
 LOG_DIR        = BASE_DIR / "logs"
+CONFIG_PATH    = BASE_DIR / "configs" / "admin_settings.json"
+
+def load_settings():
+    """从解耦的配置文件中动态加载运行参数"""
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"⚠️ 无法加载配置文件: {e}，将使用内置兜底配置。")
+        return {
+            "subscribers": [
+                {"name": "Nancy", "email": "nancysdaily.cc@outlook.com", "timezone": "Asia/Shanghai"},
+                {"name": "QaoDarkShit", "email": "572162170@qq.com", "timezone": "Asia/Shanghai"},
+                {"name": "Violetta", "email": "violettaweng@gmail.com", "timezone": "Europe/London"}
+            ],
+            "claude_model": "claude-3-5-sonnet-20241022",
+            "ollama_model": "qwen3.5:9b"
+        }
+
+SETTINGS = load_settings()
 
 HOURS_LOOKBACK_MORNING = 24                  # 早报：回看24小时
 HOURS_LOOKBACK_EVENING = 12                  # 晚报：回看12小时（覆盖下午到晚上）
 GITHUB_REPO_DIR = BASE_DIR / "AI-Morning-Brief-Agent"  # Railway 部署用 repo
-OLLAMA_MODEL   = "qwen3.5:9b"               # 备用本地模型
+
+# 引擎与模型配置
+CLAUDE_MODEL   = SETTINGS.get("claude_model", "claude-3-5-sonnet-20241022")
+OLLAMA_MODEL   = SETTINGS.get("ollama_model", "qwen3.5:9b")
 OLLAMA_API     = "http://localhost:11434/api/generate"
 
-# 邮件配置（从环境变量读取，本地用 launchd plist 注入）
+# 邮件配置
 GMAIL_USER     = os.environ.get("GMAIL_USER", "eclipsener@gmail.com")
 GMAIL_APP_PWD  = os.environ.get("GMAIL_APP_PWD", "")
 
-# 订阅者列表
-SUBSCRIBERS = [
-    {"name": "Nancy",       "email": "nancysdaily.cc@outlook.com", "timezone": "Asia/Shanghai"},
-    {"name": "QaoDarkShit", "email": "572162170@qq.com",           "timezone": "Asia/Shanghai"},
-    {"name": "Violetta",    "email": "violettaweng@gmail.com",     "timezone": "Europe/London"},
-]
+# 订阅者列表 (动态拉取)
+SUBSCRIBERS = SETTINGS.get("subscribers", [])
 # ============================================================
 
 
@@ -69,14 +88,19 @@ def greeting_for_timezone(tz_name: str) -> str:
         return "🌃 深夜好"
 
 
-def get_feeds() -> list[dict]:
-    """返回指定的 RSS 订阅源列表"""
-    return [
-        {"title": "Simon Willison", "url": "https://simonwillison.net/atom/everything/"},
-        {"title": "TechCrunch",     "url": "https://techcrunch.com/feed/"},
-        {"title": "The Verge",      "url": "https://www.theverge.com/rss/index.xml"},
-        {"title": "minimaxir",      "url": "https://minimaxir.com/index.xml"},
-    ]
+def get_sections() -> list[dict]:
+    """从配置中获取版块定义与 RSS 源"""
+    return SETTINGS.get("sections", [
+        {
+            "id": "ai",
+            "name": "AI 探索者",
+            "is_default_email": True,
+            "feeds": [
+                {"title": "Simon Willison", "url": "https://simonwillison.net/atom/everything/"},
+                {"title": "TechCrunch",     "url": "https://techcrunch.com/feed/"}, # 兜底逻辑
+            ]
+        }
+    ])
 
 
 def fetch_recent_articles(feeds: list[dict], hours: int) -> tuple[list[dict], list[dict]]:
@@ -128,35 +152,35 @@ def fetch_recent_articles(feeds: list[dict], hours: int) -> tuple[list[dict], li
     return articles, fetch_stats
 
 
-def build_prompt(articles: list[dict], date_str: str) -> str:
+def build_prompt(articles: list[dict], date_str: str, section_name: str = "AI") -> str:
     articles_json = json.dumps(articles, ensure_ascii=False, indent=2)
-    categories = "、".join(["技术突破", "社区热议", "工具推荐", "政策动态", "模型发布"])
-    return f"""你是 Nancy 的私人 AI 新闻编辑。今天是 {date_str}。
+    categories = "、".join(["技术突破", "社区热议", "工具推荐", "政策动态", "模型发布", "趋势观察"])
+    return f"""你是 Nancy 的私人专属情报官。今天是 {date_str}。
+你正在负责【{section_name}】版块的资讯编撰。
 
-以下是从 RSS 订阅源刚抓取的文章（JSON）：
+以下是从该领域 RSS 订阅源刚抓取的原文信息（JSON）：
 
 {articles_json}
 
 请完成以下任务：
-1. 筛选与 AI、LLM、机器学习、AI 工具/产品/政策 相关的文章
-2. 若 AI 文章不足 5 篇，可补充有价值的技术/科技文章
-3. 只输出一个 JSON 对象，不要有任何其他文字、标题或代码块标记，格式严格如下：
+1. 筛选与【{section_name}】高度相关且最具深度的文章
+2. 只输出一个标准的 JSON 对象，不要有任何 Markdown 代码块包裹，格式严格如下：
 
 {{
-  "summary": "2-3 句话概括今天最值得关注的动态",
+  "summary": "2-3 句话概括该版块今天的全局动态",
   "articles": [
     {{
-      "title": "文章标题（中文翻译或原标题）",
+      "title": "文章标题（中文翻译）",
       "source": "来源名称",
-      "published": "发布时间，如 2024-01-01 08:00",
-      "one_liner": "一句话摘要（中文，15-30字）",
+      "published": "发布时间",
+      "one_liner": "一句话神总结（中文，15-30字）",
       "link": "原文 URL",
-      "category": "从以下选一个：{categories}"
+      "category": "从以下标签选一个最贴切的：{categories}"
     }}
   ]
 }}
 
-articles 包含 5-8 篇，按重要性排序。"""
+articles 包含 5 篇，按行业权重排序。"""
 
 
 CLAUDE_BIN = "/Users/nancyxie/.local/bin/claude"   # claude CLI 完整路径
@@ -202,12 +226,9 @@ def summarize_with_ollama(prompt: str) -> str:
     return result.get("response", "").strip()
 
 
-def summarize(articles: list[dict], date_str: str) -> tuple[str, str]:
-    """
-    先尝试 Claude CLI，失败则回退到 Ollama。
-    返回 (brief_text, model_used)，model_used: "claude_cli" | "ollama"
-    """
-    prompt = build_prompt(articles, date_str)
+def summarize(articles: list[dict], date_str: str, section_name: str = "AI") -> tuple[str, str]:
+    """支持多板块生成的摘要函数"""
+    prompt = build_prompt(articles, date_str, section_name)
     t0 = time.time()
     monitor = TokenMonitor(LOG_DIR) if TokenMonitor else None
     
@@ -445,71 +466,80 @@ def main() -> None:
     print(f"  {greeting_emoji} {greeting_word}！生成 {date_str} {brief_title}")
     print(f"{'='*50}\n")
 
-    print("📖 [1/4] 读取 RSS 订阅源...")
-    feeds = get_feeds()
-    print(f"       共 {len(feeds)} 个订阅源\n")
+    print("📖 [1/4] 读取 RSS 板块配置...")
+    sections = get_sections()
+    print(f"       共 {len(sections)} 个内容板块\n")
 
-    print(f"📡 [2/4] 抓取最近 {hours_lookback}h 的文章...")
-    articles, fetch_stats = fetch_recent_articles(feeds, hours_lookback)
-    total_in = sum(s["included"] for s in fetch_stats)
-    print(f"       共抓取 {sum(s['fetched'] for s in fetch_stats)} 篇，入库 {total_in} 篇\n")
+    all_briefs_data = {} # 存储所有板块的生成结果
 
-    # 缓存本次输入载荷，供 save_case.py 半自动反思库调取
-    with open(LOG_DIR / "last_run_articles.json", "w", encoding="utf-8") as f:
-        json.dump(articles, f, ensure_ascii=False, indent=2)
+    # 循环处理每个板块
+    for sec in sections:
+        sec_id = sec["id"]
+        sec_name = sec["name"]
+        print(f"📂 处理板块: 【{sec_name}】...")
+        
+        # 2/4 抓取
+        articles, fetch_stats = fetch_recent_articles(sec["feeds"], hours_lookback)
+        total_in = sum(s["included"] for s in fetch_stats)
+        
+        if total_in == 0:
+            print(f"       ⚠️ 板块 {sec_name} 无新内容，跳过。")
+            continue
+            
+        # 3/4 生成
+        brief, model_used = summarize(articles, date_str, sec_name)
+        all_briefs_data[sec_id] = brief
+        
+        # 4/4 保存（中文命名，可读性更好）
+        _names = {
+            "ai":   ("今日AI新闻.md",   "今晚AI简报.md"),
+            "tech": ("今日科技热点.md", "今晚科技热点.md"),
+            "econ": ("今日经济简报.md", "今晚经济简报.md"),
+        }
+        filename = _names.get(sec_id, (f"{sec_id}.md", f"{sec_id}_Evening.md"))[1 if is_evening else 0]
+        _, md_content, parse_path = parse_markdown_to_html(brief, date_str, "Nancy", args.mode)
+        save_brief(md_content, date_str, filename)
+        
+        # 如果是默认推送板块（AI），则执行邮件发送
+        if sec.get("is_default_email", False):
+            print(f"📧 [Email] 正在推送默认板块 【{sec_name}】...")
+            email_results = []
+            for sub in SUBSCRIBERS:
+                sub_greeting = greeting_for_timezone(sub.get("timezone", "Asia/Shanghai"))
+                html_content, _, _ = parse_markdown_to_html(brief, date_str, sub["name"], args.mode, sub_greeting)
+                result = send_email(html_content, date_str, sub["email"], f"【{sec_name}】{brief_title} {date_str}")
+                result["name"]  = sub["name"]
+                result["email"] = sub["email"]
+                email_results.append(result)
+            
+            # 审计日志
+            write_audit_log(date_str, fetch_stats, model_used, parse_path, len(articles), email_results,
+                            hours_lookback, f"{audit_suffix}_{sec_id}")
 
-    if total_in == 0:
-        msg = (
-            f"日期：{date_str}\n"
-            f"所有 {len(feeds)} 个 RSS 源均未抓取到有效文章（可能是网络问题或源结构变化）。\n\n"
-            + "\n".join(
-                f"- {s['source']}: 抓取 {s['fetched']} 篇，过滤 {s['filtered_old']} 篇"
-                + (f"，错误：{s['error']}" if s['error'] else "")
-                for s in fetch_stats
-            )
-        )
-        print(f"  ❌ 0 篇文章入库，终止生成，发送告警...\n")
-        send_alert(f"{date_str} 抓取失败，0 篇文章", msg)
-        audit_path = LOG_DIR / f"audit_{date_str}{audit_suffix}.md"
-        audit_path.write_text(
-            f"# 审计日志 · {date_str}{audit_suffix}\n> ❌ 抓取 0 篇，流程终止\n\n" + msg,
-            encoding="utf-8"
-        )
-        sys.exit(1)
+    print(f"\n✨ 完成全板块分发与归档！\n")
+    # 同步整个目录
+    sync_all_to_github(date_str, args.mode)
 
-    print("🤖 [3/4] 生成简报...")
-    brief, model_used = summarize(articles, date_str)
-    print("       简报生成完毕\n")
 
-    print("💾 [4/4] 保存 & 批量分发...")
-
-    # 解析一次获取 md + parse_path；后续订阅者复用同一 brief
-    _, md_content, parse_path = parse_markdown_to_html(brief, date_str, "Nancy", args.mode)
-    save_brief(md_content, date_str, brief_filename)
-
-    # 获取最终输出文章数
+def sync_all_to_github(date_str: str, mode: str) -> None:
+    """同步整个当日文件夹到 GitHub"""
+    if not GITHUB_REPO_DIR.exists(): return
+    
+    src_folder = DAILY_DIR / date_str
+    dst_folder = GITHUB_REPO_DIR / "Daily" / date_str
+    if dst_folder.exists(): shutil.rmtree(dst_folder)
+    shutil.copytree(src_folder, dst_folder)
+    
+    brief_label = "多板块更新"
+    commit_msg = f"brief: {date_str} {brief_label}"
+    
     try:
-        start = brief.find('{')
-        article_count = len(json.loads(brief[start:]).get("articles", [])) if start >= 0 else 0
-    except Exception:
-        article_count = md_content.count("### ")
-
-    email_results = []
-    for sub in SUBSCRIBERS:
-        sub_greeting = greeting_for_timezone(sub.get("timezone", "Asia/Shanghai"))
-        html_content, _, _ = parse_markdown_to_html(brief, date_str, sub["name"], args.mode, sub_greeting)
-        result = send_email(html_content, date_str, sub["email"], f"{brief_title} {date_str}")
-        result["name"]  = sub["name"]
-        result["email"] = sub["email"]
-        email_results.append(result)
-
-    write_audit_log(date_str, fetch_stats, model_used, parse_path, article_count, email_results,
-                    hours_lookback, audit_suffix)
-
-    success_count = sum(1 for r in email_results if r["success"])
-    print(f"\n✨ 完成分发 ({success_count}/{len(SUBSCRIBERS)} 发送成功)！\n")
-
-    sync_to_github(date_str, brief_filename, args.mode)
+        subprocess.run(["git", "add", "."], cwd=GITHUB_REPO_DIR, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", commit_msg], cwd=GITHUB_REPO_DIR, capture_output=True)
+        subprocess.run(["git", "push", "origin", "main"], cwd=GITHUB_REPO_DIR, capture_output=True, timeout=30)
+        print("  ✅ GitHub 全量同步完成")
+    except Exception as e:
+        print(f"  ⚠️ GitHub 同步失败: {e}")
 
 
 def sync_to_github(date_str: str, filename: str, mode: str) -> None:
