@@ -197,8 +197,12 @@ def summarize_with_claude_cli(prompt: str) -> str:
         timeout=120,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"claude CLI 错误: {result.stderr[:200]}")
-    return result.stdout.strip()
+        detail = (result.stderr or result.stdout or "（无输出，可能是 session 失效，需要重新登录 Claude Code）")[:300]
+        raise RuntimeError(f"claude CLI 错误: {detail}")
+    output = result.stdout.strip()
+    if not output:
+        raise RuntimeError("claude CLI 返回空内容（可能是 session 失效或使用量限制，需要重新登录 Claude Code）")
+    return output
 
 
 def summarize_with_ollama(prompt: str) -> str:
@@ -487,7 +491,18 @@ def main() -> None:
             continue
             
         # 3/4 生成
-        brief, model_used = summarize(articles, date_str, sec_name)
+        try:
+            brief, model_used = summarize(articles, date_str, sec_name)
+        except Exception as e:
+            err_msg = str(e)
+            print(f"  ❌ 板块【{sec_name}】生成失败: {err_msg}")
+            send_alert(
+                f"板块【{sec_name}】生成失败 {date_str}",
+                f"日期: {date_str}\n板块: {sec_name}\n错误: {err_msg}\n\n"
+                f"请检查 Claude Code 登录状态（运行 claude -p 测试），或查看日志:\n"
+                f"{LOG_DIR}/morning_brief.log"
+            )
+            continue
         all_briefs_data[sec_id] = brief
         
         # 4/4 保存（中文命名，可读性更好）

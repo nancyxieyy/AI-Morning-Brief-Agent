@@ -284,12 +284,38 @@ def _repair_json(raw: str) -> str:
     return ''.join(result)
 
 
-def _try_parse_json(content: str):
-    """先直接解析，失败则尝试修复后再解析。返回 (data, parse_path)"""
+def _extract_json_object(content: str) -> str:
+    """从字符串中提取第一个完整的 JSON 对象（括号匹配），忽略 JSON 后面的额外内容。"""
     start = content.find('{')
     if start == -1:
         raise ValueError("No JSON object found")
-    raw = content[start:]
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(content[start:], start):
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return content[start:i + 1]
+    raise ValueError("Unmatched braces in JSON")
+
+
+def _try_parse_json(content: str):
+    """先直接解析，失败则尝试修复后再解析。返回 (data, parse_path)"""
+    raw = _extract_json_object(content)
     try:
         return json.loads(raw), "json_direct"
     except json.JSONDecodeError:
