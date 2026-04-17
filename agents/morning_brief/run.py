@@ -155,35 +155,104 @@ def fetch_recent_articles(feeds: list[dict], hours: int) -> tuple[list[dict], li
 def build_prompt(articles: list[dict], date_str: str, section_name: str = "AI") -> str:
     articles_json = json.dumps(articles, ensure_ascii=False, indent=2)
     categories = "、".join(["技术突破", "社区热议", "工具推荐", "政策动态", "模型发布", "趋势观察"])
-    return f"""你是 Nancy 的私人专属情报官。今天是 {date_str}。
-你正在负责【{section_name}】版块的资讯编撰。
+    return f"""你是 Nancy 的私人专属情报官。今天是 {date_str}，负责编写【{section_name}】版块简报。
 
-以下是从该领域 RSS 订阅源刚抓取的原文信息（JSON）：
-
+原文数据（JSON）：
 {articles_json}
 
-请完成以下任务：
-1. 筛选与【{section_name}】高度相关且最具深度的文章
-2. 只输出一个标准的 JSON 对象，不要有任何 Markdown 代码块包裹，格式严格如下：
+任务：从上述文章中选出最重要的 5 篇，输出一个 JSON 对象。
+
+one_liner 写作规则（最重要）：
+- 必须包含"为什么重要"或"意味着什么"，不能只复述标题
+- 坏例子："Google 发布了新的 TTS 技术" （只是标题的翻译）
+- 好例子："Google 抢在 OpenAI 之前发布语音合成，TTS 赛道的卡位战提前打响"
+- 好例子："Meta 首次推出闭源托管模型，Llama 开源路线开始动摇"
+- 好例子："开源工具又下一城，大厂专有方案的护城河窄了一圈"
+
+summary 写作规则：
+- 2-3 句话，说明今天这个领域整体发生了什么、有什么值得关注的趋势
+- 不要罗列文章，要有判断和归纳
+
+只输出 JSON，不要有任何 markdown 代码块或额外文字：
 
 {{
-  "summary": "2-3 句话概括该版块今天的全局动态",
+  "summary": "今日{section_name}领域的整体判断（2-3句）",
   "articles": [
     {{
-      "title": "文章标题（中文翻译）",
+      "title": "中文标题",
       "source": "来源名称",
       "published": "发布时间",
-      "one_liner": "一句话神总结（中文，15-30字）",
+      "one_liner": "包含判断和意义的一句话点评（20-35字）",
       "link": "原文 URL",
-      "category": "从以下标签选一个最贴切的：{categories}"
+      "category": "从以下选一个：{categories}"
     }}
   ]
-}}
-
-articles 包含 5 篇，按行业权重排序。"""
+}}"""
 
 
 CLAUDE_BIN = "/Users/nancyxie/.local/bin/claude"   # claude CLI 完整路径
+
+
+# ── 筛选层 ────────────────────────────────────────────────────
+
+def build_selection_prompt(articles: list[dict], section_name: str) -> str:
+    """生成筛选层 prompt：只传标题+来源，让 Ollama 选出最值得关注的文章序号"""
+    candidates = "\n".join(
+        f"{i}. [{a['source']}] {a['title']}"
+        for i, a in enumerate(articles)
+    )
+    return (
+        f"你是新闻编辑。从以下候选文章中选出最值得关注的5篇，用于【{section_name}】简报。\n\n"
+        f"候选文章：\n{candidates}\n\n"
+        f"选择标准：优先选新颖观点、重要进展、有争议性的内容。避免重复主题。\n\n"
+        f"只输出被选中文章的序号，用逗号分隔，例如：0,2,5,7,9\n"
+        f"不要输出任何其他内容。"
+    )
+
+
+def _parse_selection(raw: str, total: int) -> list[int]:
+    """从 '0,2,5,7,9' 解析出有效索引列表"""
+    import re
+    indices = []
+    seen = set()
+    for n in re.findall(r'\d+', raw):
+        idx = int(n)
+        if 0 <= idx < total and idx not in seen:
+            indices.append(idx)
+            seen.add(idx)
+        if len(indices) >= 5:
+            break
+    return indices
+
+
+def select_articles(articles: list[dict], section_name: str, top_k: int = 5) -> tuple[list[dict], str]:
+    """
+    筛选层：用 Ollama 从候选文章中选出最相关的 top_k 篇。
+    返回 (selected_articles, method)
+    method: "llm" | "fallback_recency"
+    """
+    if len(articles) <= top_k:
+        return articles, "fallback_all"
+
+    prompt = build_selection_prompt(articles, section_name)
+    print(f"  🔍 筛选层：从 {len(articles)} 篇中选 {top_k} 篇...")
+
+    try:
+        raw = summarize_with_ollama(prompt)
+        indices = _parse_selection(raw, len(articles))
+        if len(indices) >= 3:
+            selected = [articles[i] for i in indices]
+            print(f"  ✅ 筛选完成（LLM 选出 {len(selected)} 篇）")
+            return selected, "llm"
+        print(f"  ⚠️  筛选结果不足（{len(indices)} 篇），回退到时间排序")
+    except Exception as e:
+        print(f"  ⚠️  筛选层 Ollama 失败（{e}），回退到时间排序")
+
+    # 回退：按发布时间取最新 top_k 篇
+    def _sort_key(a: dict) -> str:
+        return a["published"] if a["published"] != "unknown" else "0000"
+    sorted_articles = sorted(articles, key=_sort_key, reverse=True)
+    return sorted_articles[:top_k], "fallback_recency"
 
 
 def summarize_with_claude_cli(prompt: str) -> str:
@@ -217,7 +286,7 @@ def summarize_with_ollama(prompt: str) -> str:
     payload = json.dumps({
         "model":  OLLAMA_MODEL,
         "prompt": prompt,
-        "stream": False,
+        "stream": True,
     }).encode("utf-8")
 
     req = urllib.request.Request(
@@ -225,41 +294,54 @@ def summarize_with_ollama(prompt: str) -> str:
         data=payload,
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=180) as resp:
-        result = json.loads(resp.read())
-    return result.get("response", "").strip()
+    # 流式接收：每个 chunk 独立 30s 超时，彻底避免整体 timeout
+    text = ""
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        for line in resp:
+            line = line.strip()
+            if not line:
+                continue
+            chunk = json.loads(line)
+            text += chunk.get("response", "")
+            if chunk.get("done"):
+                break
+    return text.strip()
 
 
-def summarize(articles: list[dict], date_str: str, section_name: str = "AI") -> tuple[str, str]:
-    """支持多板块生成的摘要函数"""
+def summarize(articles: list[dict], date_str: str, section_name: str = "AI") -> tuple[str, str, str]:
+    """支持多板块生成的摘要函数，返回 (brief, model_used, selection_method)"""
+    # 筛选层：先让 Ollama 选出最相关的文章，再进生成层
+    articles, selection_method = select_articles(articles, section_name)
     prompt = build_prompt(articles, date_str, section_name)
     t0 = time.time()
     monitor = TokenMonitor(LOG_DIR) if TokenMonitor else None
-    
+
+    # 优先本地 Ollama：无网络/鉴权依赖，稳定可靠
     try:
-        text = summarize_with_claude_cli(prompt)
+        text = summarize_with_ollama(prompt)
         duration = time.time() - t0
         if monitor:
-            monitor.record_usage("morning_brief", "claude_cli", prompt, text, duration)
-        return text, "claude_cli"
+            monitor.record_usage("morning_brief", "ollama", prompt, text, duration)
+        return text, "ollama", selection_method
     except Exception as e:
         duration = time.time() - t0
         if monitor:
-             monitor.record_usage("morning_brief", "claude_cli", prompt, "", duration, error=str(e))
-        print(f"  ⚠️  Claude CLI 失败（{e}），切换到 Ollama...")
-        
-        t1 = time.time()
-        try:
-            text = summarize_with_ollama(prompt)
-            duration2 = time.time() - t1
-            if monitor:
-                monitor.record_usage("morning_brief", "ollama", prompt, text, duration2)
-            return text, "ollama"
-        except Exception as e2:
-            duration2 = time.time() - t1
-            if monitor:
-                monitor.record_usage("morning_brief", "ollama", prompt, "", duration2, error=str(e2))
-            raise e2
+            monitor.record_usage("morning_brief", "ollama", prompt, "", duration, error=str(e))
+        print(f"  ⚠️  Ollama 失败（{e}），切换到 Claude CLI...")
+
+    # 备用：Claude CLI（需要 Pro 订阅且网络正常）
+    t1 = time.time()
+    try:
+        text = summarize_with_claude_cli(prompt)
+        duration2 = time.time() - t1
+        if monitor:
+            monitor.record_usage("morning_brief", "claude_cli", prompt, text, duration2)
+        return text, "claude_cli", selection_method
+    except Exception as e2:
+        duration2 = time.time() - t1
+        if monitor:
+            monitor.record_usage("morning_brief", "claude_cli", prompt, "", duration2, error=str(e2))
+        raise e2
 
 
 def save_brief(content: str, date_str: str, filename: str = "今日AI新闻.md") -> Path:
@@ -399,7 +481,8 @@ _PARSE_PATH_LABELS = {
 
 def write_audit_log(date_str: str, fetch_stats: list, model_used: str,
                     parse_path: str, article_count: int, email_results: list,
-                    hours_lookback: int = 24, audit_suffix: str = "") -> None:
+                    hours_lookback: int = 24, audit_suffix: str = "",
+                    selection_method: str = "unknown") -> None:
     """每日运行后写一份审计日志到 logs/audit_YYYY-MM-DD[_evening].md"""
 
     total_fetched  = sum(s["fetched"]      for s in fetch_stats)
@@ -424,10 +507,17 @@ def write_audit_log(date_str: str, fetch_stats: list, model_used: str,
         f"（共抓取 {total_fetched} 篇，过滤 {total_filtered} 篇）"
     )
 
-    model_label = "Claude CLI ✅" if model_used == "claude_cli" else "Ollama ⚠️（Claude CLI 失败，已切换）"
+    _selection_labels = {
+        "llm":             "LLM 筛选 ✅",
+        "fallback_recency": "回退·时间排序 ⚠️（LLM筛选失败）",
+        "fallback_all":    "回退·全量 ⚠️（文章数不足，无需筛选）",
+        "unknown":         "未知",
+    }
+    model_label = "Ollama ✅" if model_used == "ollama" else "Claude CLI ✅（Ollama 失败，已切换）"
     lines += [
         "",
         "## [2] 生成阶段",
+        f"- 筛选方式：{_selection_labels.get(selection_method, selection_method)}",
         f"- 模型：{model_label}",
         f"- 解析路径：{_PARSE_PATH_LABELS.get(parse_path, parse_path)}",
         f"- 输出文章数：{article_count} 篇",
@@ -490,9 +580,9 @@ def main() -> None:
             print(f"       ⚠️ 板块 {sec_name} 无新内容，跳过。")
             continue
             
-        # 3/4 生成
+        # 3/4 生成（含筛选层）
         try:
-            brief, model_used = summarize(articles, date_str, sec_name)
+            brief, model_used, selection_method = summarize(articles, date_str, sec_name)
         except Exception as e:
             err_msg = str(e)
             print(f"  ❌ 板块【{sec_name}】生成失败: {err_msg}")
@@ -507,9 +597,11 @@ def main() -> None:
         
         # 4/4 保存（中文命名，可读性更好）
         _names = {
-            "ai":   ("今日AI新闻.md",   "今晚AI简报.md"),
-            "tech": ("今日科技热点.md", "今晚科技热点.md"),
-            "econ": ("今日经济简报.md", "今晚经济简报.md"),
+            "ai":     ("今日AI新闻.md",     "今晚AI简报.md"),
+            "tech":   ("今日科技热点.md",   "今晚科技热点.md"),
+            "econ":   ("今日经济简报.md",   "今晚经济简报.md"),
+            "tools":  ("今日工具发现.md",   "今晚工具发现.md"),
+            "future": ("今日未来主义.md",   "今晚未来主义.md"),
         }
         filename = _names.get(sec_id, (f"{sec_id}.md", f"{sec_id}_Evening.md"))[1 if is_evening else 0]
         _, md_content, parse_path = parse_markdown_to_html(brief, date_str, "Nancy", args.mode)
@@ -529,7 +621,7 @@ def main() -> None:
             
             # 审计日志
             write_audit_log(date_str, fetch_stats, model_used, parse_path, len(articles), email_results,
-                            hours_lookback, f"{audit_suffix}_{sec_id}")
+                            hours_lookback, f"{audit_suffix}_{sec_id}", selection_method)
 
     print(f"\n✨ 完成全板块分发与归档！\n")
     # 同步整个目录
